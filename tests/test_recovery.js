@@ -1,0 +1,31 @@
+'use strict';
+const assert=require('node:assert/strict');
+const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+const source=fs.readFileSync(path.join(__dirname,'../src/seed.js'),'utf8')+'\n'
+ +fs.readFileSync(path.join(__dirname,'../src/math.js'),'utf8')
+ +'\nfunction exportsForTest(){return {readStoredData,writeStoredData,makeInitialData,safeData,weightStats}}';
+const ctx={console,structuredClone,Date,Intl,Number,String,Math,Map,JSON};
+vm.createContext(ctx);vm.runInContext(source,ctx);
+const {readStoredData,writeStoredData,makeInitialData,safeData,weightStats}=ctx.exportsForTest();
+const k='forma.bodylab.v1',store=new Map();
+const storage={getItem:x=>store.has(x)?store.get(x):null,setItem:(x,v)=>store.set(x,v)};
+const saved={...makeInitialData(),weights:[{date:'2026-11-15',kg:67.4,note:'',creatine:'unknown'}]};
+assert.equal(readStoredData(storage,k).invalidRaw,null);
+assert.equal(store.has(k),false,'Pouhé čtení nesmí vytvářet záznam');
+writeStoredData(storage,saved,k);
+assert.equal(readStoredData(storage,k).data.weights[0].kg,67.4);
+store.set(k,'{invalid');
+assert.equal(readStoredData(storage,k).invalidRaw,'{invalid');
+assert.equal(store.get(k),'{invalid','Poškozená data nesmí zmizet');
+const future=JSON.stringify({...saved,version:99});
+store.set(k,future);
+assert.equal(readStoredData(storage,k).invalidRaw,future);
+assert.throws(()=>safeData({...saved,version:99}),/nekompatibilní/);
+const broken={getItem:storage.getItem,setItem:()=>{throw new Error('QuotaExceededError')}};
+assert.throws(()=>writeStoredData(broken,saved,k),/QuotaExceededError/);
+assert.equal(store.get(k),future,'Při chybě zápisu se původní data nemění');
+const sparse=Array.from({length:7},(_,i)=>({date:'2026-01-'+String(i+1).padStart(2,'0'),kg:66+i*.2}));
+assert.equal(weightStats(sparse).rate,null,'Týden dat nestačí pro dlouhodobý trend');
+const enough=Array.from({length:22},(_,i)=>({date:'2026-01-'+String(i+1).padStart(2,'0'),kg:66+i*.05}));
+assert.ok(weightStats(enough).rate>0);
+console.log('PASS · recovery, atomic writes, schema, reliable weight trends');

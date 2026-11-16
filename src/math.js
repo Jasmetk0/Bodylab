@@ -32,7 +32,7 @@ const weightStats = weights => {
           delta:avg7 != null && prev7 != null ? avg7-prev7 : null,n7:a7.length,nPrev:p7.length};
 };
 const regressionRate = weights => {
-  const xs=sortAsc(weights); if(xs.length<5) return null;
+  const xs=sortAsc(weights); if(xs.length<8 || datesRange(xs[0].date,xs[xs.length-1].date)<14) return null;
   const a=xs[0].date; const points=xs.map(w=>({x:(dateValue(w.date)-dateValue(a))/86400000,y:w.kg}));
   const mx=mean(points.map(p=>p.x)),my=mean(points.map(p=>p.y));
   const den=points.reduce((a,p)=>a+(p.x-mx)**2,0);
@@ -74,6 +74,7 @@ const parseWeightCSV=text=>{
 };
 function safeData(input){
   if(!input||typeof input!=='object'||!Array.isArray(input.weights)||!Array.isArray(input.inbodies)||!Array.isArray(input.goals)||!Array.isArray(input.nutrition)) throw new Error('Neplatná struktura zálohy.');
+  if(input.version != null && (!Number.isSafeInteger(input.version) || input.version<1 || input.version>APP_VERSION)) throw new Error('Tato záloha pochází z nekompatibilní verze FORMA.');
   if([input.weights,input.inbodies,input.goals,input.nutrition].some(a=>a.length>10000)) throw new Error('Příliš mnoho záznamů v souboru.');
   const out=makeInitialData();out.weights=[];out.inbodies=[];out.goals=[];out.nutrition=[];out.events=[];
   for(const w of input.weights){if(!isDate(w.date)||num(w.kg)==null||w.kg<30||w.kg>300)throw new Error('Chybný záznam hmotnosti.');out.weights.push({date:w.date,kg:Number(w.kg),note:String(w.note||'').slice(0,500),creatine:['yes','no','unknown'].includes(w.creatine)?w.creatine:'unknown'});}
@@ -98,4 +99,18 @@ function safeData(input){
   out.inbodies=sortAsc([...new Map(out.inbodies.map(r=>[r.date,r])).values()]);
   out.nutrition=sortAsc([...new Map(out.nutrition.map(r=>[r.date,r])).values()]);
   out.modifiedAt=new Date().toISOString();return out;
+}
+
+/** Bezpečné načtení bez přepisování dat ani u poškozeného formátu. */
+function readStoredData(storage,key=STORAGE_KEY){
+ const raw=storage.getItem(key);
+ if(raw===null)return {data:makeInitialData(),invalidRaw:null,error:null};
+ try{return {data:safeData(JSON.parse(raw)),invalidRaw:null,error:null};}
+ catch(error){return {data:makeInitialData(),invalidRaw:raw,error:String(error.message||error)};}
+}
+/** Nový stav je platný teprve po úspěšném zápisu. */
+function writeStoredData(storage,candidate,key=STORAGE_KEY){
+ const result={...candidate,modifiedAt:new Date().toISOString()};
+ storage.setItem(key,JSON.stringify(result));
+ return result;
 }

@@ -45,3 +45,9 @@ Stabilní větev: `buuk`. Nové funkce ve vlastních větvích a přes **Draft P
 ### Důležitá omezení
 
 Neobsahuje účet, cloudovou synchronizaci, WHOOP napojení ani zdravotnické vyhodnocení. Pro veřejný hosting nenasazuj soukromé exporty; i veřejný statický kód webu je viditelný každému.
+
+## Záchrana nečitelných dat
+
+Při nekompatibilní verzi zálohy nebo poškozeném záznamu v `localStorage` aplikace chrání původní obsah před přepsáním. Nabízí stažení původního JSON, obnovu zálohy a vědomý reset (dvě potvrzení). Import a reset jsou potvrzené až po skutečně úspěšném zápisu. Nedostatek místa v prohlížeči nezobrazuje falešný úspěch.
+
+28denní trend vyžaduje nejméně 8 měření v rozmezí minimálně 14 dnů.

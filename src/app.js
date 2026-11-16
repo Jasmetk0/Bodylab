@@ -26,20 +26,33 @@ const ICONS={
   save:'<path d="M5 3h13l3 3v15H3V3h2m3 0v6h8V3M7 21v-8h10v8"/>'
 };
 const icon=(key,cls='')=>`<svg class="${cls}" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[key]||ICONS.info}</svg>`;
-let data;let storageError=false;
+let data;let storageError=false;let recoveryRaw=null;
 const ui={view:'dashboard',period:90,weightEdit:null,weightShowAll:false,inbodyEdit:null,goalEdit:null,nutritionEdit:null,baseInbody:'',newInbody:'',showInbodyForm:false,showGoalForm:false,showNutritionForm:false};
-function loadData(){try{const raw=localStorage.getItem(STORAGE_KEY);if(raw) return safeData(JSON.parse(raw));const initial=makeInitialData();localStorage.setItem(STORAGE_KEY,JSON.stringify(initial));return initial;}
-  catch(e){storageError=true;console.warn('Úložiště:',e);return makeInitialData();}}
-function saveData(){data.modifiedAt=new Date().toISOString();try{localStorage.setItem(STORAGE_KEY,JSON.stringify(data));storageError=false;}
-  catch(e){storageError=true;toast('Nepodařilo se uložit. Stáhni si JSON zálohu.','error');}}
+function loadData(){
+ try{const r=readStoredData(localStorage);
+  if(r.invalidRaw!==null){recoveryRaw=r.invalidRaw;storageError=true;console.warn('Nečitelná historie FORMA:',r.error);}
+  return r.data;
+ }catch(e){storageError=true;console.warn('Úložiště:',e);return makeInitialData();}
+}
+function saveData(){
+ if(recoveryRaw!==null){storageError=true;toast('Původní data jsou chráněná. Obnov je nebo vědomě resetuj.','error');return false;}
+ try{data=writeStoredData(localStorage,data);storageError=false;return true;}
+ catch(e){storageError=true;toast('Uložení selhalo. Změna nemusí být trvalá – stáhni JSON zálohu.','error');return false;}
+}
+function applyReplacement(candidate,message){
+ try{const saved=writeStoredData(localStorage,candidate);data=saved;recoveryRaw=null;storageError=false;
+  ui.baseInbody=firstInBody()?.date||'';ui.newInbody=lastInBody()?.date||'';
+  render();toast(message);return true;
+ }catch(e){storageError=true;render();toast('Zápis selhal; původní data zůstala uložená.','error');return false;}
+}
 function toast(text,type='ok'){const host=document.getElementById('toast-host');host.innerHTML=`<div class="toast ${type==='error'?'error':''}">${escapeHtml(text)}</div>`;clearTimeout(toast._timer);toast._timer=setTimeout(()=>host.innerHTML='',3900);}
 function download(content,name,type){const blob=new Blob([content],{type}),url=URL.createObjectURL(blob),anchor=document.createElement('a');anchor.href=url;anchor.download=name;document.body.append(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);}
-function saveAndRender(message){saveData();render();if(message)toast(message);}
+function saveAndRender(message){const ok=saveData();render();if(ok&&message)toast(message);}
 const navs=[['dashboard','Přehled','dashboard'],['weight','Ranní váha','weight'],['inbody','InBody','body'],['goals','Moje cíle','target'],['nutrition','Strava','food'],['data','Data a zálohy','data']];
 function navMarkup(mobile=false){return navs.map(([id,title,ic])=>`<button type="button" data-nav="${id}" class="${ui.view===id?'active':''}" title="${title}" aria-label="${title}" aria-current="${ui.view===id?'page':'false'}">${icon(ic)}<span>${title}</span></button>`).join('');}
 function layout(content){const latest=getLatest(data.weights);
   return `<div class="app-layout"><aside class="sidebar"><div class="brand"><div class="brand-symbol">↗</div><div><div class="brand-name">FORMA<span style="color:var(--lime)">.</span></div><span class="brand-kicker">BODY PROGRESS LAB</span></div></div><div><div class="nav-label">Tvůj prostor</div><nav class="nav" aria-label="Hlavní navigace">${navMarkup()}</nav></div><div class="sidebar-bottom"><b><span class="signal"></span> Soukromá data</b><p>Uložená v tomto prohlížeči. Pravidelně exportuj zálohu.</p></div></aside>
-  <main class="main"><div class="topbar"><div class="breadcrumb">FORMA / <strong>${escapeHtml(navs.find(n=>n[0]===ui.view)?.[1]||'Přehled')}</strong></div><div class="mobile-brand"><div class="brand-symbol">↗</div>FORMA<span style="color:var(--lime)">.</span></div><div class="top-right"><span class="pill"><span class="dot"></span>${escapeHtml(latest?`Poslední vážení ${dateLabel(latest.date)}`:'Zatím bez vážení')}</span><button class="button primary" data-action="new-weight">${icon('plus')}<span> Zapsat váhu</span></button></div></div>${storageError?'<div class="info warning" style="margin-top:15px">Prohlížeč blokuje místní ukládání. Data teď nejsou bezpečně uložená. Použij export JSON.</div>':''}${content}<div class="footer-note">FORMA v1.0 · Všechna data zůstávají na tomto zařízení · InBody je orientační měření, nikoli lékařská diagnóza.</div></main><nav class="mobile-nav" aria-label="Mobilní navigace">${navMarkup(true)}</nav></div>`;}
+  <main class="main"><div class="topbar"><div class="breadcrumb">FORMA / <strong>${escapeHtml(navs.find(n=>n[0]===ui.view)?.[1]||'Přehled')}</strong></div><div class="mobile-brand"><div class="brand-symbol">↗</div>FORMA<span style="color:var(--lime)">.</span></div><div class="top-right"><span class="pill"><span class="dot"></span>${escapeHtml(latest?`Poslední vážení ${dateLabel(latest.date)}`:'Zatím bez vážení')}</span><button class="button primary" data-action="new-weight">${icon('plus')}<span> Zapsat váhu</span></button></div></div>${recoveryRaw!==null?'<div class="info warning" role="alert" style="margin-top:15px"><b>OCHRANA DAT: historii se nepodařilo načíst</b><p>Původní obsah zůstal v tomto prohlížeči nedotčený. Nové zápisy jsou blokované, dokud historii neobnovíš nebo vědomě nesmažeš.</p><div class="recovery-actions"><button class="button" data-action="download-recovery">Stáhnout původní obsah</button><button class="button" data-nav="data">Obnovit ze zálohy</button><button class="button ghost" data-action="reset-recovery">Smazat poškozený obsah</button></div></div>':storageError?'<div class="info warning" role="alert" style="margin-top:15px">Prohlížeč blokuje ukládání. Změny nemusí být trvalé. Stáhni JSON zálohu.</div>':''}${content}<div class="footer-note">FORMA v1.0 · Všechna data zůstávají na tomto zařízení · InBody je orientační měření, nikoli lékařská diagnóza.</div></main><nav class="mobile-nav" aria-label="Mobilní navigace">${navMarkup(true)}</nav></div>`;}
 function pageHeader(kicker,title,subtitle,actions=''){return `<header class="header"><div><div class="overline">${escapeHtml(kicker)}</div><h1>${title}</h1><p>${subtitle}</p></div>${actions?`<div class="header-actions">${actions}</div>`:''}</header>`;}
 function card(title,sub,body,extra=''){return `<section class="card ${extra}"><div class="card-heading"><div><h2>${title}</h2>${sub?`<p>${sub}</p>`:''}</div></div>${body}</section>`;}
 function stat(label,value,unit,foot,ic='',cl=''){return `<section class="card ${cl}">${ic?`<div class="stat-mark">${icon(ic)}</div>`:''}<div class="stat-label">${label}</div><div class="stat-value">${value}<small> ${unit}</small></div><div class="stat-foot">${foot}</div></section>`;}
@@ -94,7 +107,7 @@ function weightForm(){const w=data.weights.find(x=>x.date===ui.weightEdit);
 }
 function weightsPage(){const stats=weightStats(data.weights),sorted=sortDesc(data.weights),rows=ui.weightShowAll?sorted:sorted.slice(0,18);
  return pageHeader('Denní záznamy','Ranní váha. Bez hádání.','Jednotlivé dny kolísají. Sleduj hlavně několik týdnů a poznámky k událostem.')+
- `<div class="grid cols4">${stat('Aktuální váha',fmt(stats.latest?.kg,'',1),'kg',dateLabel(stats.latest?.date),'weight','accent')}${stat('Průměr 7 dní',fmt(stats.avg7,'',2),'kg',`${stats.n7} měření v posledních 7 dnech`,'chart')}${stat('Trend 28 dní',stats.rate==null?'—':`${stats.rate>=0?'+':''}${fixed(stats.rate,2)}`,'kg/týden','Lineární trend, nikoliv přímý odhad tuku','activity')}${stat('Počet záznamů',String(data.weights.length),'','Historie vlastních záznamů','calendar')}</div>`+
+ `<div class="grid cols4">${stat('Aktuální váha',fmt(stats.latest?.kg,'',1),'kg',dateLabel(stats.latest?.date),'weight','accent')}${stat('Průměr 7 dní',fmt(stats.avg7,'',2),'kg',`${stats.n7} měření v posledních 7 dnech`,'chart')}${stat('Trend 28 dní',stats.rate==null?'—':`${stats.rate>=0?'+':''}${fixed(stats.rate,2)}`,'kg/týden','Trend jen při alespoň 8 váženích za 14+ dní','activity')}${stat('Počet záznamů',String(data.weights.length),'','Historie vlastních záznamů','calendar')}</div>`+
  `<div class="grid cols3 section"><section class="card span2"><div class="card-heading split-head"><div><h2>Graf vývoje</h2><p>7denní průměr pomáhá filtrovat šum</p></div>${periodButtons()}</div>${weightChart()}</section>${weightForm()}</div>`+
  `<section class="card section"><div class="card-heading split-head"><div><h2>Historie vážení</h2><p>Každý záznam můžeš upravit nebo smazat</p></div><div class="selector"><button class="button small" data-action="export-weight-csv">${icon('download')} CSV</button></div></div><div class="table-scroll"><table><thead><tr><th>Datum</th><th class="right">Váha</th><th>Poznámka</th><th>Kreatin</th><th class="right">Akce</th></tr></thead><tbody>${rows.map(w=>`<tr><td class="nowrap">${dateLabel(w.date)}</td><td class="right"><strong>${fmt(w.kg,'kg',1)}</strong></td><td>${escapeHtml(w.note||'—')}</td><td>${w.creatine==='yes'?'<span class="chip">Ano</span>':w.creatine==='no'?'<span class="chip warn">Vynechán</span>':'<span class="nothing">—</span>'}</td><td><div class="row-actions"><button class="button small ghost" title="Upravit" aria-label="Upravit váhu ${dateLabel(w.date)}" data-action="edit-weight" data-date="${w.date}">${icon('edit')}</button><button class="button small ghost" title="Smazat" aria-label="Smazat váhu ${dateLabel(w.date)}" data-action="delete-weight" data-date="${w.date}">${icon('trash')}</button></div></td></tr>`).join('')}</tbody></table></div>${!ui.weightShowAll&&sorted.length>18?`<div style="text-align:center;padding-top:15px"><button class="button ghost" data-action="show-weights">Zobrazit všech ${sorted.length} záznamů</button></div>`:''}</section>`;
 }
@@ -184,7 +197,9 @@ function jumpTo(id){requestAnimationFrame(()=>document.getElementById(id)?.scrol
 const val=(f,k)=>String(f.get(k)||'').trim();
 const fnum=(f,k)=>num(val(f,k).replace(',','.'));
 function handleSubmit(ev){const form=ev.target;if(!form.id||!form.id.startsWith('form-'))return;
- ev.preventDefault();const f=new FormData(form);try{
+ ev.preventDefault();
+ if(recoveryRaw!==null){toast('Nejdříve zachraň nebo obnov původní historii.','error');return;}
+ const f=new FormData(form);try{
  if(form.id==='form-weight'){
    const date=val(f,'date'),kg=fnum(f,'kg'),original=val(f,'original');
    if(!isDate(date)||kg==null||kg<30||kg>300)throw new Error('Zadej platné datum a váhu 30–300 kg.');
@@ -232,7 +247,15 @@ function handleClick(ev){const nav=ev.target.closest('[data-nav]');if(nav){ui.vi
  const period=ev.target.closest('[data-period]');if(period){ui.period=Number(period.dataset.period);render();return;}
  const button=ev.target.closest('[data-action]');if(!button)return;
  const {action,date,id}=button.dataset;
+ if(recoveryRaw!==null&&!['download-recovery','reset-recovery'].includes(action)){
+  toast('Zápis je blokován, dokud neobnovíš nebo nesmažeš původní data.','error');return;
+ }
  switch(action){
+  case 'download-recovery':
+   if(recoveryRaw!==null){download(recoveryRaw,'forma-zachrana-puvodniho-obsahu.json','application/json;charset=utf-8');toast('Zahájeno stažení původního obsahu.');}return;
+  case 'reset-recovery':
+   if(recoveryRaw!==null&&confirm('Opravdu nevratně nahradit původní nečitelná data prázdným stavem?')&&confirm('Máš uloženou zálohu, nebo původní historii již nepotřebuješ?'))applyReplacement(makeInitialData(),'Nečitelná historie byla vědomě nahrazena prázdným stavem.');
+   return;
    case 'new-weight':ui.view='weight';ui.weightEdit=null;render();jumpTo('weight-form');return;
    case 'cancel-weight':ui.weightEdit=null;render();return;
    case 'edit-weight':ui.weightEdit=date;render();jumpTo('weight-form');return;
@@ -252,7 +275,7 @@ function handleClick(ev){const nav=ev.target.closest('[data-nav]');if(nav){ui.vi
    case 'delete-nutrition':if(confirm(`Smazat záznam stravy ${dateLabel(date)}?`)){data.nutrition=data.nutrition.filter(n=>n.date!==date);saveAndRender('Záznam stravy smazán.');}return;
    case 'export-json':download(JSON.stringify(data,null,2),`forma-zaloha-${new Date().toLocaleDateString('sv-SE')}.json`,'application/json;charset=utf-8');toast('Záloha JSON stažena.');return;
    case 'export-weight-csv':download(serializeCSV(sortAsc(data.weights),['date','kg','note','creatine']),'forma-ranni-vahy.csv','text/csv;charset=utf-8');toast('CSV export připraven.');return;
-   case 'reset-data':if(confirm('Opravdu smazat všechny místní záznamy a obnovit prázdný stav? Doporučujeme předem export JSON.')&&confirm('Poslední potvrzení: chceš kompletně obnovit počáteční stav?')){data=makeInitialData();ui.baseInbody='';ui.newInbody='';saveAndRender('Místní záznamy smazány.');}return;
+   case 'reset-data':if(confirm('Opravdu smazat všechny místní záznamy? Doporučujeme předem export JSON.')&&confirm('Poslední potvrzení: nahradit databázi prázdným stavem?'))applyReplacement(makeInitialData(),'Místní záznamy smazány.');return;
  }
 }
 function handleSelect(ev){const item=ev.target;if(item.dataset.select==='base-inbody'){ui.baseInbody=item.value;render();}
@@ -262,9 +285,10 @@ async function handleFile(ev){const input=ev.target;if(!input.files?.length)retu
  const text=await file.text();if(input.id==='import-json'){
    const parsed=JSON.parse(text);const restored=safeData(parsed);
    if(!confirm(`Obnovit zálohu? Nahradí současná data: ${restored.weights.length} vah, ${restored.inbodies.length} InBody, ${restored.nutrition.length} dnů stravy.`))return;
-   data=restored;ui.baseInbody=firstInBody()?.date||'';ui.newInbody=lastInBody()?.date||'';saveAndRender('Záloha byla úspěšně obnovena.');return;
+   applyReplacement(restored,'Záloha byla úspěšně obnovena.');return;
  }
  if(input.id==='import-weight-csv'){
+   if(recoveryRaw!==null)throw new Error('Před importem CSV nejprve obnov plnou JSON zálohu nebo vědomě resetuj původní data.');
    const result=parseWeightCSV(text);if(!result.rows.length)throw new Error(result.errors[0]||'CSV neobsahuje platné váhy.');
    if(!confirm(`Importovat ${result.rows.length} záznamů váhy? Duplicitní datum se přepíše. ${result.errors.length} řádků bude vynecháno.`))return;
    const old=new Map(data.weights.map(w=>[w.date,w]));for(const w of result.rows)old.set(w.date,w);
