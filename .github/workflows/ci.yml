@@ -24,6 +24,7 @@ jobs:
           node --check src/math.js
           node --check src/app.js
           node tests/test_math.js
+          node tests/test_recovery.js
       - name: Regenerate browser builds
         run: python3 build.py
       - name: Verify generated files were committed
