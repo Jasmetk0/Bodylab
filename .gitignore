@@ -1,0 +1,17 @@
+# Private exports and measurements must remain outside source control
+*.private.json
+*.personal.json
+*.backup.json
+*osobni*.json
+*personal*.json
+*inbody*.csv
+*vahy*.csv
+*.env
+.env.*
+.DS_Store
+__pycache__/
+.pytest_cache/
+node_modules/
+playwright-report/
+test-results/
+preview-*.png
